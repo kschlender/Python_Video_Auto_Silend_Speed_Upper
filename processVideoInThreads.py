@@ -5,6 +5,8 @@ from moviepy.audio.io.AudioFileClip import AudioFileClip
 from moviepy.video.VideoClip import ColorClip
 from moviepy.audio.AudioClip import CompositeAudioClip
 from moviepy.video.compositing.concatenate import concatenate_videoclips
+from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
+
 
 # function to process a video chunk
 def process_chunk(chunk_idx):
