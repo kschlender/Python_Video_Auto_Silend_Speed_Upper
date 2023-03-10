@@ -8,6 +8,10 @@ In this version of the code, I've added an import statement for tensorflow and c
 import tensorflow as tf
 import tensorflow_io as tfio
 
+#s3 issue tensorflow
+if 's3' in tf.io.gfile.GLOBAL_REGISTRY:
+    del tf.io.gfile.GLOBAL_REGISTRY['s3']
+    
 # Define the input and output video files
 input_file = "videoInput.mp4"
 output_file = "432hzVideoOutput.mp4"
