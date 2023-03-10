@@ -1,65 +1,80 @@
-import moviepy.editor as mp
-import numpy as np
+import os
 import threading
+from moviepy.video.io.VideoFileClip import VideoFileClip
+from moviepy.audio.io.AudioFileClip import AudioFileClip
+from moviepy.video.VideoClip import ColorClip
+from moviepy.audio.AudioClip import CompositeAudioClip
+from moviepy.video.compositing.concatenate import concatenate_videoclips
 
+
+# function to process a video chunk
+def process_chunk(chunk_idx):
+    # load video chunk
+    start_time = chunk_idx * chunk_duration
+    end_time = start_time + chunk_duration
+    clip = VideoFileClip(input_file).subclip(start_time, end_time)
+
+    # get audio frames
+    audio_frames = clip.audio.to_soundarray()
+
+    # determine which frames have muted audio
+    muted_audio_mask = (audio_frames.max(axis=1) < audio_threshold)
+
+    # create list of playback rates for each frame
+    rates = [4.0 if muted_audio_mask[i] else 1.0 for i in range(len(muted_audio_mask))]
+
+    # create list of color clips for each frame
+    color_clips = [ColorClip(size=(clip.w, clip.h), color=[0, 0, 0], duration=1.0 / clip.fps) for i in range(len(rates))]
+
+    # combine color clips and playback rates into video clip
+    video_clip = CompositeVideoClip([clip.set_fps(clip.fps * rate).subclip(i, i + 1) for i, rate in enumerate(rates)], size=clip.size)
+
+    # extract audio clip
+    audio_clip = clip.audio.subclip(0, clip.duration)
+
+    # process audio clip
+    audio_clip = process_audio_clip(audio_clip)
+
+    # combine video and audio clips
+    video_clip = video_clip.set_audio(audio_clip)
+
+    # save output file
+    output_filename = f"output_{chunk_idx:02d}{os.path.splitext(input_file)[1]}"
+    video_clip.write_videofile(output_filename, audio_codec='aac')
+
+# function to process audio clip
 def process_audio_clip(audio_clip):
-    # Modify audio to 432hz
-    audio_clip = audio_clip.fx(mp.audio.change_speed, 432/440)
+    # convert audio from 440hz to 432hz
+    audio_clip = audio_clip.fx(AudioFileClip.set_fps, 43200)
     return audio_clip
 
-def process_video_clip(video_clip):
-    # Split audio and video
-    audio_clip = video_clip.audio
-    video_clip = video_clip.without_audio()
-    
-    # Create mask for muted audio
-    audio_mask = audio_clip.to_soundarray().max(axis=1) < 0.05
-    
-    # Create array of playback rates
-    playback_rates = np.ones(len(audio_mask))
-    playback_rates[audio_mask] = 4
-    
-    # Create array of video frames
-    video_frames = []
-    for i in range(len(playback_rates)):
-        frame = video_clip.get_frame(i / video_clip.fps)
-        video_frames.extend([frame] * int(playback_rates[i]))
-    
-    # Combine video frames and audio clip
-    final_clip = mp.concatenate_videoclips([mp.ImageClip(frame) for frame in video_frames])
-    final_clip = final_clip.set_audio(process_audio_clip(audio_clip))
-    
-    return final_clip
+# input file
+input_file = "videoInput.mp4"
 
-def process_chunk(chunk):
-    # Load chunk and process video clip
-    clip = mp.VideoFileClip(chunk)
-    clip = process_video_clip(clip)
-    
-    # Save processed clip to output file
-    output_filename = "output_" + chunk
-    clip.write_videofile(output_filename, fps=clip.fps)
-    
-if __name__ == '__main__':
-    # Split video into chunks for processing in parallel
-    input_filename = "videoInput.mp4"
-    video_clip = mp.VideoFileClip(input_filename)
-    chunk_size = video_clip.duration / 45
-    chunks = [(i*chunk_size, (i+1)*chunk_size) for i in range(45)]
-    
-    # Process chunks in parallel using threads
-    threads = []
-    for chunk in chunks:
-        t = threading.Thread(target=process_chunk, args=(chunk,))
-        threads.append(t)
-        t.start()
-    
-    # Wait for all threads to finish before continuing
-    for t in threads:
-        t.join()
-    
-    # Combine processed chunks into final output file
-    output_filenames = ["output_chunk{}.mp4".format(i) for i in range(45)]
-    final_clip = mp.concatenate_videoclips([mp.VideoFileClip(f) for f in output_filenames])
-    final_clip = final_clip.set_audio(process_audio_clip(final_clip.audio))
-    final_clip.write_videofile("432hzVideoOutput.mp4", fps=final_clip.fps)
+# audio threshold (determines which frames have muted audio)
+audio_threshold = 0.01
+
+# chunk size (in seconds)
+chunk_duration = 5
+
+# number of chunks to split the video into
+num_chunks = 45
+
+# split the video into chunks and process each chunk in a separate thread
+threads = []
+for i in range(num_chunks):
+    thread = threading.Thread(target=process_chunk, args=(i,))
+    thread.start()
+    threads.append(thread)
+
+# wait for all threads to finish
+for thread in threads:
+    thread.join()
+
+# combine output files into a single file
+output_files = sorted([f for f in os.listdir() if f.startswith("output_")])
+clips = [VideoFileClip(f) for f in output_files]
+video_clip = concatenate_videoclips(clips)
+audio_clip = CompositeAudioClip([clip.audio for clip in clips])
+video_clip = video_clip.set_audio(audio_clip)
+video_clip.write_videofile("432hzVideoOutput.mp4", audio_codec='aac')
